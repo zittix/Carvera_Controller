@@ -12,6 +12,27 @@
 void export_orientation(void);
 void load_custom_builtin_importer(void);
 
+// Export macro for C symbols
+#if defined(_WIN32) || defined(__CYGWIN__)
+#   define APP_EXPORTED_SYMBOL __declspec(dllexport)
+#else
+#   ifndef __has_attribute
+#       define __has_attribute(x) 0
+#   endif
+#   if (defined(__GNUC__) && (__GNUC__ >= 4)) || (defined(__clang__) && __has_attribute(visibility))
+#       define APP_EXPORTED_SYMBOL __attribute__ ((visibility ("default")))
+#   else
+#       define APP_EXPORTED_SYMBOL
+#   endif
+#endif
+
+// Ensure the symbol is exported with default visibility
+extern APP_EXPORTED_SYMBOL void nslog_helper(const char *st);
+
+APP_EXPORTED_SYMBOL void nslog_helper(const char *st) {
+    NSLog(@"%s", st);
+}
+
 int main(int argc, char *argv[]) {
     int ret = 0;
 
@@ -71,10 +92,31 @@ int main(int argc, char *argv[]) {
 
     // Add an importer for builtin modules
     load_custom_builtin_importer();
-
+    
+PyRun_SimpleString(
+                   "import sys\n"
+                   "from ctypes import CDLL, c_char_p\n"
+                   "\n"
+                   "# Load the main program image\n"
+                   "_main = CDLL(None)\n"
+                   "\n"
+                   "def ios_log_write(s):\n"
+                   "    _main.nslog_helper(c_char_p(s.encode('utf-8')))\n"
+                   "\n"
+                   "class IOSLog:\n"
+                   "    def write(self, msg):\n"
+                   "        if msg.strip():\n"
+                   "            ios_log_write(msg)\n"
+                   "    def flush(self):\n"
+                   "        pass\n"
+                   "\n"
+                   "sys.stdout = IOSLog()\n"
+                   "sys.stderr = IOSLog()\n"
+                   );
+    PyRun_SimpleString("from kivy.lang import Observable;");
     // Search and start main.py
 #define MAIN_EXT @"pyc"
-    PyRun_SimpleString("import sys; import runpy; import carveracontrollerpkg; sys.modules['carveracontroller'] = carveracontrollerpkg; runpy.run_module('carveracontroller', run_name='__main__')");
+    PyRun_SimpleString("import sys; import runpy; import carveracontrollerpkg; sys.modules['carveracontroller'] = carveracontrollerpkg; print('Running module'); runpy.run_module('carveracontroller', run_name='__main__')");
 
     Py_Finalize();
     NSLog(@"Leaving");
@@ -176,3 +218,4 @@ void load_custom_builtin_importer(void) {
         "sys.meta_path.insert(0, CustomBuiltinImporter())";
     PyRun_SimpleString(custom_builtin_importer);
 }
+
